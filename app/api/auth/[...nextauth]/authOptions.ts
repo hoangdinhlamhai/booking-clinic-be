@@ -72,30 +72,44 @@ export const authOptions: NextAuthOptions = {
 
   callbacks: {
     async signIn({ user, account, profile }) {
+      // 1. Credentials pass through
       if (account?.provider === "credentials") return true;
-      if (!user.email || account?.provider !== "google") return false;
 
-      const providerId = profile?.sub;
-      if (!providerId) return false;
+      // 2. Validate Google logic
+      if (account?.provider === "google") {
+        if (!user.email) return false;
 
-      const { error } = await supabaseAdmin.from("users").upsert(
-        {
-          name: user.name,
-          email: user.email,
-          provider: "google",
-          provider_id: providerId,
-          avatar_url: user.image,
-          is_active: true,
-        },
-        { onConflict: "provider,provider_id" }
-      );
+        // 3. Fallback strategies for Provider ID
+        const providerId =
+          profile?.sub ||
+          account?.providerAccountId ||
+          user.id ||
+          user.email;
 
-      if (error) {
-        console.error("Supabase signIn error:", error);
-        return false;
+        // 4. Upsert using 'email' as conflict key
+        const { error } = await supabaseAdmin.from("users").upsert(
+          {
+            email: user.email,
+            name: user.name,
+            provider: "google", // Update provider info
+            provider_id: providerId,
+            avatar_url: user.image,
+            is_active: true,
+          },
+          { onConflict: "email" }
+        );
+
+        if (error) {
+          console.error("Supabase upsert warning:", error);
+          // Rule: Ensure Google login never returns false because of DB errors.
+          // We return true to allow session creation even if DB sync warns.
+          return true;
+        }
+
+        return true;
       }
 
-      return true;
+      return false;
     },
     async jwt({ token, user }) {
       if (user?.email && !token.userId) {
