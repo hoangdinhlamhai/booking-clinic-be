@@ -114,34 +114,42 @@ export const authOptions: NextAuthOptions = {
 
       return false; // Block other providers if any
     },
-    async jwt({ token, user }) {
-      if (user?.email && !token.userId) {
-        const { data, error } = await supabaseAdmin
-          .from("users")
-          .select("id, role")
-          .eq("email", user.email)
-          .single();
+    async jwt({ token, user, trigger }) {
+      // Chỉ chạy logic fallback/enrich khi mới đăng nhập (có user)
+      if (user) {
+        // 1. Gán giá trị Fallback NGAY LẬP TỨC (đảm bảo luôn có data)
+        token.userId = user.id || token.sub; // Dùng Google ID tạm nếu DB lỗi
+        token.role = "patient"; // Role mặc định
 
-        if (error || !data) {
-          console.error("JWT callback error:", error);
-          return token;
+        // 2. Thử lấy data từ DB (Non-blocking)
+        if (user.email) {
+          try {
+            const { data, error } = await supabaseAdmin
+              .from("users")
+              .select("id, role")
+              .eq("email", user.email)
+              .single();
+
+            if (data) {
+              token.userId = data.id; // Nếu có DB -> Update thành UUID xịn
+              token.role = data.role;
+            } else {
+              console.warn("⚠️ JWT: Không tìm thấy user trong DB, dùng fallback.");
+              if (error) console.warn("Chi tiết lỗi DB:", error.message);
+            }
+          } catch (e) {
+            console.error("❌ JWT: Lỗi exception khi gọi DB (vẫn cho login):", e);
+          }
         }
-
-        token.userId = data.id;
-        token.role = data.role;
       }
-
       return token;
     },
 
     async session({ session, token }) {
       if (session.user) {
-        session.user.id = token.userId as string;
-        session.user.role = token.role as
-          | "admin"
-          | "clinic_admin"
-          | "staff"
-          | "patient";
+        // Luôn map từ token (đã được xử lý an toàn ở bước jwt)
+        session.user.id = (token.userId as string) || "unknown";
+        session.user.role = (token.role as any) || "patient";
       }
       return session;
     },
