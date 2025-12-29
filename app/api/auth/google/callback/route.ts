@@ -13,7 +13,8 @@ export async function GET(request: Request) {
     }
 
     try {
-        const backendUrl = process.env.NEXTAUTH_URL || "https://booking-clinic-be.vercel.app";
+        const rawBackendUrl = process.env.NEXTAUTH_URL || "https://booking-clinic-be.vercel.app";
+        const backendUrl = rawBackendUrl.replace(/\/$/, "");
         const redirectUri = `${backendUrl}/api/auth/google/callback`;
 
         // 1. Exchange Code for Tokens

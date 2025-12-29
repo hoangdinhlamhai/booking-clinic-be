@@ -5,9 +5,12 @@ export async function GET(request: Request) {
     const callbackUrl = searchParams.get("callbackUrl"); // Optional: support dynamic return
 
     const clientId = process.env.GOOGLE_CLIENT_ID;
-    const backendUrl = process.env.NEXTAUTH_URL || "https://booking-clinic-be.vercel.app";
-    // Ensure this matches exactly what is in Google Cloud Console
+    const rawBackendUrl = process.env.NEXTAUTH_URL || "https://booking-clinic-be.vercel.app";
+    const backendUrl = rawBackendUrl.replace(/\/$/, ""); // Remove trailing slash if present
     const redirectUri = `${backendUrl}/api/auth/google/callback`;
+
+    console.log("👉 [GoogleAuth] Backend URL used:", backendUrl);
+    console.log("👉 [GoogleAuth] Redirect URI generated:", redirectUri);
 
     if (!clientId) {
         return NextResponse.json({ error: "Missing GOOGLE_CLIENT_ID" }, { status: 500 });
