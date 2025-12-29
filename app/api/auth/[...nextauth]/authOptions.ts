@@ -71,21 +71,24 @@ export const authOptions: NextAuthOptions = {
 
   callbacks: {
     async signIn({ user, account, profile }) {
+      console.log("👉 [SignIn] Provider:", account?.provider);
+
       // 1. Credentials pass through
       if (account?.provider === "credentials") return true;
 
       // 2. Validate Google logic
       if (account?.provider === "google") {
         try {
-          // Fallback strategies for Provider ID
           const providerId =
             profile?.sub ||
             account?.providerAccountId ||
             user.id ||
             user.email ||
-            "unknown_google_id"; // Ultimate fallback
+            "unknown_google_id";
 
-          // Upsert using 'email' as conflict key
+          console.log("👉 [SignIn] Processing Google User:", user.email, "ID:", providerId);
+
+          // Upsert DB (Fire and Forget / Safe await)
           if (user.email) {
             const { error } = await supabaseAdmin.from("users").upsert(
               {
@@ -100,28 +103,30 @@ export const authOptions: NextAuthOptions = {
             );
 
             if (error) {
-              console.error("Supabase upsert warning:", error);
+              console.warn("⚠️ [SignIn] DB Upsert Warning (Not Critical):", error.message);
+            } else {
+              console.log("✅ [SignIn] DB Upsert Success");
             }
           }
 
-          // ALWAYS return true for Google if we got this far
-          return true;
+          return true; // ALWAYS return true for Google
         } catch (e) {
-          console.error("SignIn callback exception:", e);
-          return true; // Still allow login, even if DB sync crashes
+          console.error("❌ [SignIn] Exception (Ignored):", e);
+          return true; // Fail safe
         }
       }
 
-      return false; // Block other providers if any
+      return false;
     },
     async jwt({ token, user, trigger }) {
-      // Chỉ chạy logic fallback/enrich khi mới đăng nhập (có user)
       if (user) {
-        // 1. Gán giá trị Fallback NGAY LẬP TỨC (đảm bảo luôn có data)
-        token.userId = user.id || token.sub; // Dùng Google ID tạm nếu DB lỗi
-        token.role = "patient"; // Role mặc định
+        console.log("👉 [JWT] Initial Signin for:", user.email);
 
-        // 2. Thử lấy data từ DB (Non-blocking)
+        // 1. Fallback Immediate
+        token.userId = user.id || token.sub;
+        token.role = "patient";
+
+        // 2. DB Enrich
         if (user.email) {
           try {
             const { data, error } = await supabaseAdmin
@@ -131,14 +136,15 @@ export const authOptions: NextAuthOptions = {
               .single();
 
             if (data) {
-              token.userId = data.id; // Nếu có DB -> Update thành UUID xịn
+              console.log("✅ [JWT] Enriched from DB. Role:", data.role);
+              token.userId = data.id;
               token.role = data.role;
             } else {
-              console.warn("⚠️ JWT: Không tìm thấy user trong DB, dùng fallback.");
-              if (error) console.warn("Chi tiết lỗi DB:", error.message);
+              console.warn("⚠️ [JWT] User not found in DB during enrich.");
             }
+            if (error) console.warn("⚠️ [JWT] DB Error:", error.message);
           } catch (e) {
-            console.error("❌ JWT: Lỗi exception khi gọi DB (vẫn cho login):", e);
+            console.error("❌ [JWT] DB Exception:", e);
           }
         }
       }
@@ -147,7 +153,6 @@ export const authOptions: NextAuthOptions = {
 
     async session({ session, token }) {
       if (session.user) {
-        // Luôn map từ token (đã được xử lý an toàn ở bước jwt)
         session.user.id = (token.userId as string) || "unknown";
         session.user.role = (token.role as any) || "patient";
       }
@@ -155,4 +160,3 @@ export const authOptions: NextAuthOptions = {
     },
   },
 };
-
