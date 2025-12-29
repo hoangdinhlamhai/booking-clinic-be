@@ -6,10 +6,8 @@ import bcrypt from "bcryptjs";
 
 export const authOptions: NextAuthOptions = {
   session: { strategy: "jwt" },
-  pages: {
-    signIn: "/login",
-    error: "/login", // Redirect to login page on error too
-  },
+  // Backend has no UI, so we do NOT define pages here.
+  // Redirects are handled by the Frontend using callbackUrl.
 
   providers: [
     GoogleProvider({
@@ -78,39 +76,43 @@ export const authOptions: NextAuthOptions = {
 
       // 2. Validate Google logic
       if (account?.provider === "google") {
-        if (!user.email) return false;
+        try {
+          // Fallback strategies for Provider ID
+          const providerId =
+            profile?.sub ||
+            account?.providerAccountId ||
+            user.id ||
+            user.email ||
+            "unknown_google_id"; // Ultimate fallback
 
-        // 3. Fallback strategies for Provider ID
-        const providerId =
-          profile?.sub ||
-          account?.providerAccountId ||
-          user.id ||
-          user.email;
+          // Upsert using 'email' as conflict key
+          if (user.email) {
+            const { error } = await supabaseAdmin.from("users").upsert(
+              {
+                email: user.email,
+                name: user.name,
+                provider: "google",
+                provider_id: providerId,
+                avatar_url: user.image,
+                is_active: true,
+              },
+              { onConflict: "email" }
+            );
 
-        // 4. Upsert using 'email' as conflict key
-        const { error } = await supabaseAdmin.from("users").upsert(
-          {
-            email: user.email,
-            name: user.name,
-            provider: "google", // Update provider info
-            provider_id: providerId,
-            avatar_url: user.image,
-            is_active: true,
-          },
-          { onConflict: "email" }
-        );
+            if (error) {
+              console.error("Supabase upsert warning:", error);
+            }
+          }
 
-        if (error) {
-          console.error("Supabase upsert warning:", error);
-          // Rule: Ensure Google login never returns false because of DB errors.
-          // We return true to allow session creation even if DB sync warns.
+          // ALWAYS return true for Google if we got this far
           return true;
+        } catch (e) {
+          console.error("SignIn callback exception:", e);
+          return true; // Still allow login, even if DB sync crashes
         }
-
-        return true;
       }
 
-      return false;
+      return false; // Block other providers if any
     },
     async jwt({ token, user }) {
       if (user?.email && !token.userId) {
