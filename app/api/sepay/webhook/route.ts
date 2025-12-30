@@ -3,7 +3,7 @@ import { supabaseAdmin } from "@/app/lib/supabase/admin";
 export async function POST(req: Request) {
   try {
     const payload = await req.json();
-    console.log("🔔 SEPAY WEBHOOK PAYLOAD:", payload);
+    console.log("SEPAY WEBHOOK PAYLOAD:", payload);
 
     if (payload?.transferType !== "in") {
       return Response.json({ ok: true });
@@ -14,25 +14,17 @@ export async function POST(req: Request) {
       payload?.description ??
       "";
 
-    if (!rawContent.includes("DATLICH")) {
-      console.error("❌ NO DATLICH TAG:", rawContent);
+    // Use Regex to find DATLICH_... pattern
+    // This is more robust than simple replace()
+    const match = rawContent.match(/DATLICH_?([a-zA-Z0-9-]+)/);
+
+    if (!match) {
+      console.error("NO DATLICH BOOKING ID FOUND IN CONTENT:", rawContent);
       return Response.json({ ok: true });
     }
 
-    let bookingId = rawContent.replace("BankAPINotify", "").trim();
-
-    if (bookingId.startsWith("DATLICH_")) {
-      bookingId = bookingId.replace("DATLICH_", "");
-    } else if (bookingId.startsWith("DATLICH")) {
-      bookingId = bookingId.replace("DATLICH", "");
-    }
-
-    bookingId = bookingId.trim();
-
-    if (!bookingId) {
-      console.error("❌ EMPTY BOOKING ID");
-      return Response.json({ ok: true });
-    }
+    const bookingId = match[1];
+    console.log("EXTRACTED BOOKING ID:", bookingId);
 
     const paidAmount = Number(payload?.transferAmount ?? 0);
 
@@ -43,7 +35,7 @@ export async function POST(req: Request) {
       .single();
 
     if (bookingErr || !booking) {
-      console.error("❌ BOOKING NOT FOUND:", bookingId);
+      console.error("BOOKING NOT FOUND:", bookingId);
       return Response.json({ ok: true });
     }
 
@@ -59,13 +51,13 @@ export async function POST(req: Request) {
       .single();
 
     if (payErr || !payment) {
-      console.error("❌ PAYMENT NOT FOUND:", bookingId);
+      console.error("PAYMENT NOT FOUND:", bookingId);
       return Response.json({ ok: true });
     }
 
     if (paidAmount < Number(payment.amount)) {
       console.error(
-        "❌ AMOUNT NOT ENOUGH:",
+        "AMOUNT NOT ENOUGH:",
         paidAmount,
         "EXPECTED:",
         payment.amount
@@ -88,11 +80,11 @@ export async function POST(req: Request) {
       .update({ status: "paid" })
       .eq("id", booking.id);
 
-    console.log("✅ BOOKING PAID:", bookingId);
+    console.log("BOOKING PAID:", bookingId);
 
     return Response.json({ success: true });
   } catch (err) {
-    console.error("🔥 SEPAY WEBHOOK ERROR:", err);
+    console.error("SEPAY WEBHOOK ERROR:", err);
     return Response.json({ error: "WEBHOOK_ERROR" }, { status: 500 });
   }
 }
