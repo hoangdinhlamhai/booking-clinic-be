@@ -1,11 +1,35 @@
 import { supabaseAdmin } from "@/app/lib/supabase/admin";
 import { getServerSession } from "next-auth";
+import { decode } from "next-auth/jwt";
 import { authOptions } from "@/app/api/auth/[...nextauth]/authOptions";
 
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
 
-  if (!session?.user?.email) {
+  let userId = session?.user?.id;
+  let userEmail = session?.user?.email;
+
+  if (!userEmail) {
+    const authHeader = req.headers.get("authorization");
+    if (authHeader?.startsWith("Bearer ")) {
+      const token = authHeader.split(" ")[1];
+      try {
+        const decoded = await decode({
+          token,
+          secret: process.env.NEXTAUTH_SECRET || "secret",
+        });
+
+        if (decoded?.email) {
+          userId = decoded.userId as string;
+          userEmail = decoded.email as string;
+        }
+      } catch (error) {
+        console.error("Error decoding token:", error);
+      }
+    }
+  }
+
+  if (!userEmail) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -14,7 +38,7 @@ export async function POST(req: Request) {
   const { data: booking, error: bookingError } = await supabaseAdmin
     .from("bookings")
     .insert({
-      user_id: session.user.id ?? null,
+      user_id: userId ?? null,
       clinic_id: body.clinic,
       service_id: body.service,
       patient_name: body.name,
